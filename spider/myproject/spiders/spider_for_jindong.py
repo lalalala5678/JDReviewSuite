@@ -14,14 +14,8 @@ class JdCommentSpider(scrapy.Spider):
     
     # ========== 自定义设置 ==========
     custom_settings = {
-        # FEEDS 配置同时导出为 JSON 与 Excel 格式
         "FEEDS": {
             "output.json": {"format": "json", "encoding": "utf-8", "overwrite": True},
-            "output.xlsx": {"format": "xlsx", "overwrite": True},
-        },
-        # 配置 Excel 导出器（需安装 scrapy-xlsx 或其它支持 Excel 格式的扩展）
-        "FEED_EXPORTERS": {
-            "xlsx": "scrapy_xlsx.XlsxItemExporter"
         },
         "ROBOTSTXT_OBEY": False,
         "LOG_LEVEL": "DEBUG",
@@ -48,7 +42,6 @@ class JdCommentSpider(scrapy.Spider):
     def parse_comments(self, response):
         self.logger.debug("开始解析评论数据")
         try:
-            # 匹配 JSONP 格式数据，例如：fetchJSON_comment98({...})
             jsonp_pattern = r'fetchJSON_comment98\((.*)\)'
             match = re.search(jsonp_pattern, response.text)
             if match:

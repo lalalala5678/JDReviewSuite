@@ -94,7 +94,7 @@ pip install scrapy pandas openpyxl
 
 #### 3. 运行爬虫
 
-在项目根目录下执行以下命令（确保爬虫类中的 `name` 属性为 `jingdong_comment_spider`）：
+在 spider 文件夹下下执行以下命令（确保爬虫类中的 `name` 属性为 `jingdong_comment_spider`）：
 
 ```bash
 scrapy crawl jingdong_comment_spider
