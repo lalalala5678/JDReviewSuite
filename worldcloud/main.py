@@ -136,7 +136,6 @@ draw.text(
 )
 
 mask_image_array = np.array(mask_image_pil)
-# 如果效果与预期相反，可尝试反转： mask_image_array = 255 - mask_image_array
 
 #==================== 6. 生成词云 ====================
 wordcloud = WordCloud(
@@ -169,10 +168,25 @@ def calculate_sentiment(text):
     return s.sentiments
 
 df_reviews["sentiment_score"] = df_reviews["clean_text"].apply(calculate_sentiment)
-print("\n情感分析示例：")
-print(df_reviews[["content", "sentiment_score"]].head(5))
 
-#==================== 8. LDA 主题模型示例 ====================
+#==================== 8. 输出情感倾向分析图 ====================
+# 根据情感分数进行分类
+positive_reviews = df_reviews[df_reviews["sentiment_score"] > 0.5]
+negative_reviews = df_reviews[df_reviews["sentiment_score"] <= 0.5]
+
+# 绘制情感倾向分析图
+sentiment_counts = [len(positive_reviews), len(negative_reviews)]
+sentiment_labels = ['积极评论', '消极评论']
+
+plt.figure(figsize=(6, 6))
+plt.pie(sentiment_counts, labels=sentiment_labels, autopct='%1.2f%%', startangle=90, colors=['#66C93A', '#FF4B4B'])
+plt.title('文本情感倾向分析图', fontsize=16)
+plt.axis('equal')  # 保持圆形
+plt.savefig("sentiment_analysis_pie_chart.png", dpi=300, bbox_inches='tight')  # 保存图像
+plt.show()
+print("情感倾向分析图已保存为 sentiment_analysis_pie_chart.png")
+
+#==================== 9. LDA 主题模型示例 ====================
 texts_tokenized = [text.split() for text in df_reviews["clean_text"]]
 dictionary = corpora.Dictionary(texts_tokenized)
 corpus = [dictionary.doc2bow(text) for text in texts_tokenized]
@@ -190,9 +204,7 @@ topics = lda_model.print_topics(num_words=10)
 for topic_idx, topic in topics:
     print(f"主题 {topic_idx}：{topic}")
 
-#==================== 9. 生成评论关联强度网络图 ====================
-import networkx as nx
-
+#==================== 10. 生成评论关联强度网络图 ====================
 # 获取频率前30的词汇
 top_30_words = word_frequency.head(30)
 
@@ -226,9 +238,11 @@ nx.draw_networkx_labels(G, pos, font_size=12, font_family="sans-serif")
 
 plt.title("评论词语关联网络图", fontsize=16)
 plt.axis("off")
+plt.savefig("comment_word_association_network.png", dpi=300, bbox_inches='tight')  # 保存图像
 plt.show()
+print("评论词语关联网络图已保存为 comment_word_association_network.png")
 
-#==================== 10. 生成评论文本评述表 ====================
+#==================== 11. 生成评论文本评述表 ====================
 # 将词频和词语转换为DataFrame并输出为 Excel 文件
 word_frequency_df = top_30_words.reset_index()
 word_frequency_df.columns = ['词语', '频率']
