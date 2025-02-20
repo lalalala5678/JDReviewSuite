@@ -10,6 +10,7 @@ import pandas as pd
 import numpy as np
 import jieba
 import matplotlib.pyplot as plt
+import networkx as nx
 from wordcloud import WordCloud
 from snownlp import SnowNLP
 from gensim import corpora, models
@@ -189,10 +190,45 @@ topics = lda_model.print_topics(num_words=10)
 for topic_idx, topic in topics:
     print(f"主题 {topic_idx}：{topic}")
 
-#==================== 9. 生成评论文本评述表 ====================
-# 选择频率最高的30个词并输出为 Excel 文件
-top_30_words = word_frequency
+#==================== 9. 生成评论关联强度网络图 ====================
+import networkx as nx
 
+# 获取频率前30的词汇
+top_30_words = word_frequency.head(30)
+
+# 创建一个无向图
+G = nx.Graph()
+
+# 为每个词语添加节点
+for word in top_30_words.index:
+    G.add_node(word, size=top_30_words[word])
+
+# 生成词语间的边（依据共现关系）
+for idx, row in df_reviews.iterrows():
+    words_in_review = set(row["clean_text"].split())
+    for word1 in words_in_review:
+        for word2 in words_in_review:
+            if word1 != word2 and word1 in top_30_words.index and word2 in top_30_words.index:
+                if G.has_edge(word1, word2):
+                    G[word1][word2]["weight"] += 1
+                else:
+                    G.add_edge(word1, word2, weight=1)
+
+# 设置节点大小，边的权重对应连接强度
+node_sizes = [G.nodes[node]["size"] * 10 for node in G.nodes]
+
+# 画图
+plt.figure(figsize=(12, 12))
+pos = nx.spring_layout(G, k=0.15, iterations=20)  # 布局
+nx.draw_networkx_nodes(G, pos, node_size=node_sizes, node_color="lightcoral")
+nx.draw_networkx_edges(G, pos, width=1.0, alpha=0.5, edge_color="gray")
+nx.draw_networkx_labels(G, pos, font_size=12, font_family="sans-serif")
+
+plt.title("评论词语关联网络图", fontsize=16)
+plt.axis("off")
+plt.show()
+
+#==================== 10. 生成评论文本评述表 ====================
 # 将词频和词语转换为DataFrame并输出为 Excel 文件
 word_frequency_df = top_30_words.reset_index()
 word_frequency_df.columns = ['词语', '频率']
