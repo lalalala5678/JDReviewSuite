@@ -189,4 +189,16 @@ topics = lda_model.print_topics(num_words=10)
 for topic_idx, topic in topics:
     print(f"主题 {topic_idx}：{topic}")
 
+#==================== 9. 生成评论文本评述表 ====================
+# 选择频率最高的30个词并输出为 Excel 文件
+top_30_words = word_frequency.head(30)
+
+# 将词频和词语转换为DataFrame并输出为 Excel 文件
+word_frequency_df = top_30_words.reset_index()
+word_frequency_df.columns = ['词语', '频率']
+excel_output_path = "comment_review.xlsx"
+word_frequency_df.to_excel(excel_output_path, index=False)
+
+print(f"\n评论文本评述表已保存为 {excel_output_path}")
+
 print("\n脚本执行完毕。")
