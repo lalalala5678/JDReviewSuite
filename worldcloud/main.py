@@ -258,6 +258,8 @@ def map_snownlp_to_label(sentiment):
 
 df_merged['predicted_label'] = df_merged['sentiment_score'].apply(map_snownlp_to_label)
 
+
+
 # 计算混淆矩阵和准确率
 labels = ['positive', 'neutral', 'negative']
 cm = confusion_matrix(df_merged['true_label'], df_merged['predicted_label'], labels=labels)
@@ -267,12 +269,20 @@ print("混淆矩阵：")
 print(cm)
 print(f"SnowNLP 分析结果的准确率: {acc*100:.2f}%")
 
-# 绘制混淆矩阵热力图
+# 对混淆矩阵按行归一化，便于可视化
+cm_normalized = cm.astype('float') / cm.sum(axis=1, keepdims=True)
+
+# 绘制混淆矩阵热力图（归一化）
 plt.figure(figsize=(8, 6))
-sns.heatmap(cm, annot=True, fmt="d", xticklabels=labels, yticklabels=labels, cmap="Blues")
+sns.heatmap(cm_normalized, 
+            annot=True,       # 显示数值
+            fmt=".2f",        # 保留两位小数
+            xticklabels=labels, 
+            yticklabels=labels, 
+            cmap="Reds")      # 使用暖色调 Reds
 plt.xlabel("预测标签")
 plt.ylabel("真实标签")
-plt.title("SnowNLP 情感分析混淆矩阵")
+plt.title("SnowNLP 情感分析混淆矩阵（归一化）")
 plt.show()
 
 

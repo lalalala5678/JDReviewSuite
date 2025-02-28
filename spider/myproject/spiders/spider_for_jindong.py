@@ -7,11 +7,12 @@ class JdCommentSpider(scrapy.Spider):
     name = 'jingdong_comment_spider'
 
     # ========== 可配置参数 ==========
-    MAX_PAGES = 100                     # 爬取评论的总页数（从 0 开始计数）
-    COMMENTS_PER_PAGE = 10              # 每页评论数量
-    PRODUCT_ID = "100105778115"         # 待爬取评论的京东商品 ID
-    PROXY_ADDRESS = "http://t13998326728581:lvscpmow@a338.kdltpspro.com:15818/"
-    
+    MAX_PAGES = 500                     # 增加爬取评论的总页数（从 0 开始计数）
+    COMMENTS_PER_PAGE = 20              # 每页评论数量（前提是接口允许更多数据）
+    PRODUCT_ID = "100054492400"         # 待爬取评论的京东商品 ID
+    # 代理设置：隧道地址、用户名、密码与 requests 示例一致
+    PROXY_ADDRESS = "http://t14073074054095:6arg6ric@o918.kdltpspro.com:15818/"
+
     # ========== 自定义设置 ==========
     custom_settings = {
         "FEEDS": {
@@ -55,7 +56,9 @@ class JdCommentSpider(scrapy.Spider):
 
         comments = json_data.get('comments', [])
         if not comments:
-            self.logger.info("当前页无评论数据")
+            self.logger.info("当前页无评论数据，停止爬取")
+            # 终止爬虫，避免继续无效请求
+            self.crawler.engine.close_spider(self, "No more comments")
             return
 
         for comment in comments:
@@ -73,6 +76,6 @@ class JdCommentSpider(scrapy.Spider):
                 item["comment_type"] = "中评"
             else:
                 item["comment_type"] = "差评"
-                
+
             self.logger.info(f"Yield 评论: {item}")
             yield item
