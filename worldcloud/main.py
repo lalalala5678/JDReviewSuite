@@ -35,9 +35,16 @@ plt.rcParams["font.sans-serif"] = ["SimHei"]  # 使用黑体显示中文
 plt.rcParams["axes.unicode_minus"] = False    # 正常显示负号
 
 #==================== 1. 读取 JSON 数据并构建 DataFrame =====================
+
 json_filepath = "output.json"  # JSON 文件路径
 with open(json_filepath, "r", encoding="utf-8") as file:
     json_data = json.load(file)
+
+# 检查每个条目是否包含 "score" 字段，如果没有则添加默认值
+for entry in json_data:
+    if "score" not in entry:
+        entry["score"] = 0  # 可根据实际情况设置默认值
+        print("缺失score字段，已添加默认值0。")
 
 df_reviews = pd.DataFrame(json_data)
 
@@ -71,6 +78,7 @@ def filter_stopwords(text):
 df_reviews["clean_text"] = df_reviews["clean_text"].apply(filter_stopwords)
 
 #==================== 4. 统计词频并输出评论统计信息 =====================
+
 all_words = []
 for word_line in df_reviews["clean_text"]:
     all_words.extend(word_line.split())
@@ -79,6 +87,16 @@ word_frequency = pd.Series(all_words).value_counts()
 
 print(f"共分析了 {len(df_reviews)} 条评论。")
 print(f"去重并分词后，共计 {len(all_words)} 个词。")
+
+# 将统计结果转换为 DataFrame，并重命名列名
+df_word_frequency = word_frequency.reset_index()
+df_word_frequency.columns = ["词语", "词频"]
+
+# 导出为 Excel 文件，文件名为 word_frequency.xlsx
+output_file = "word_frequency.xlsx"
+df_word_frequency.to_excel(output_file, index=False)
+
+print(f"词语和词频统计结果已导出至文件：{output_file}")
 
 #========= 新增：筛选并输出“无意义词”示例（按长度或自定义逻辑） =========
 def is_meaningless(word):
@@ -105,7 +123,7 @@ mask_width = INITIAL_MASK_WIDTH
 mask_height = INITIAL_MASK_HEIGHT
 
 font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
-mask_text = "滋补汤"
+mask_text = "药食滋补汤"
 
 temp_image = Image.new("RGB", (mask_width, mask_height))
 temp_draw = ImageDraw.Draw(temp_image)
@@ -138,13 +156,15 @@ draw.text(
 mask_image_array = np.array(mask_image_pil)
 
 #==================== 6. 生成词云 =====================
+
 wordcloud = WordCloud(
     font_path=FONT_PATH,
     background_color="white",
     max_words=1000,
     mask=mask_image_array,
     mode="RGB",
-    scale=2  # 放大绘制倍数，可自行调大
+    scale=2,  # 放大绘制倍数，可自行调大
+    colormap="autumn"  # 使用暖色调色图
 )
 wordcloud.generate_from_frequencies(word_frequency)
 
@@ -160,31 +180,102 @@ print(f"词云图已保存为 {output_image_path}")
 plt.show()
 
 #==================== 7. SnowNLP 情感分析 =====================
-def calculate_sentiment(text):
-    """计算文本情感得分，空文本返回中性 0.5"""
+def calculate_sentiment(text, gamma=0.5):
+    """计算文本情感得分，空文本返回中性 0.8。使用幂次变换调整情感得分分布"""
     if not text.strip():
-        return 0.5
+        return 0.8
     s = SnowNLP(text)
-    return s.sentiments
+    raw = s.sentiments
+    # 应用幂次变换进行非线性调整
+    adjusted = raw**gamma / (raw**gamma + (1 - raw)**gamma)
+
+    return adjusted
 
 df_reviews["sentiment_score"] = df_reviews["clean_text"].apply(calculate_sentiment)
 
-#==================== 8. 输出情感倾向分析图 =====================
-# 根据情感分数进行分类
-positive_reviews = df_reviews[df_reviews["sentiment_score"] > 0.5]
-negative_reviews = df_reviews[df_reviews["sentiment_score"] <= 0.5]
 
-# 绘制情感倾向分析图
-sentiment_counts = [len(positive_reviews), len(negative_reviews)]
-sentiment_labels = ['积极评论', '消极评论']
+#==================== 8. 输出情感倾向分析图 =====================
+
+# 根据情感分数进行分类：<0.4 为消极，0.4-0.6 为中性，>0.6 为积极
+negative_reviews = df_reviews[df_reviews["sentiment_score"] < 0.05]
+neutral_reviews  = df_reviews[(df_reviews["sentiment_score"] >= 0.4) & (df_reviews["sentiment_score"] <= 0.6)]
+positive_reviews = df_reviews[df_reviews["sentiment_score"] > 0.6]
+
+# 统计各类别评论数量
+sentiment_counts = [len(positive_reviews), len(neutral_reviews), len(negative_reviews)]
+sentiment_labels = ['积极评论', '中性评论', '消极评论']
 
 plt.figure(figsize=(6, 6))
-plt.pie(sentiment_counts, labels=sentiment_labels, autopct='%1.2f%%', startangle=90, colors=['#66C93A', '#FF4B4B'])
+plt.pie(sentiment_counts, labels=sentiment_labels, autopct='%1.2f%%', startangle=90, 
+        colors=['#66C93A', '#FFC107', '#FF4B4B'])
 plt.title('文本情感倾向分析图', fontsize=16)
 plt.axis('equal')  # 保持圆形
 plt.savefig("sentiment_analysis_pie_chart.png", dpi=300, bbox_inches='tight')  # 保存图像
 plt.show()
 print("情感倾向分析图已保存为 sentiment_analysis_pie_chart.png")
+
+#==================== 8.1 使用混淆矩阵评估 SnowNLP 情感分析结果 =====================
+import json
+from sklearn.metrics import confusion_matrix, accuracy_score
+import seaborn as sns
+
+# 读取 output.json 中的真实评分数据
+with open("output.json", "r", encoding="utf-8") as f:
+    output_data = json.load(f)
+df_output = pd.DataFrame(output_data)
+
+# 检查是否存在 "score" 列，若不存在则添加默认值
+if 'score' not in df_output.columns:
+    df_output['score'] = 0
+
+# 注意：这里假设 df_reviews 和 df_output 都包含 comment_id 字段
+# 为确保能获取 output.json 中的 "score"，将 df_output 作为左表进行合并，并设置不同的后缀
+df_merged = pd.merge(df_output[['comment_id', 'score']], df_reviews, on='comment_id', how='inner', suffixes=('_true', '_df'))
+# 使用左侧的真实评分，将其转换为数值型
+df_merged['score'] = pd.to_numeric(df_merged['score_true'], errors='coerce').fillna(0)
+
+# 定义映射规则：将真实评分转换为情感标签
+def map_score_to_label(score):
+    # 评分 ≥ 4 为积极，评分 ≤ 2 为消极，其余为中性
+    if score >= 4:
+        return 'positive'
+    elif score <= 2:
+        return 'negative'
+    else:
+        return 'neutral'
+
+df_merged['true_label'] = df_merged['score'].apply(map_score_to_label)
+
+# 定义映射规则：将 SnowNLP 的情感得分转换为情感标签
+def map_snownlp_to_label(sentiment):
+    # SnowNLP 得分范围为 0 到 1：> 0.6 为积极，< 0.4 为消极，其他为中性
+    if sentiment > 0.2:
+        return 'positive'
+    elif sentiment < 0.05:
+        return 'negative'
+    else:
+        return 'neutral'
+
+df_merged['predicted_label'] = df_merged['sentiment_score'].apply(map_snownlp_to_label)
+
+# 计算混淆矩阵和准确率
+labels = ['positive', 'neutral', 'negative']
+cm = confusion_matrix(df_merged['true_label'], df_merged['predicted_label'], labels=labels)
+acc = accuracy_score(df_merged['true_label'], df_merged['predicted_label'])
+
+print("混淆矩阵：")
+print(cm)
+print(f"SnowNLP 分析结果的准确率: {acc*100:.2f}%")
+
+# 绘制混淆矩阵热力图
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt="d", xticklabels=labels, yticklabels=labels, cmap="Blues")
+plt.xlabel("预测标签")
+plt.ylabel("真实标签")
+plt.title("SnowNLP 情感分析混淆矩阵")
+plt.show()
+
+
 #==================== 9. LDA 主题模型 =====================
 def perform_lda_analysis(reviews, num_topics=3):
     texts_tokenized = [text.split() for text in reviews]
@@ -228,11 +319,11 @@ def perform_lda_analysis(reviews, num_topics=3):
         topics_dict[f"topic_{topic_idx}"] = topic
     return topics_dict
 
-# 好评：评分为5，使用5个主题
+# 好评：评分为5，使用3个主题
 positive_reviews_lda = df_reviews[df_reviews["score"] == 5]["clean_text"]
 positive_lda_result = perform_lda_analysis(positive_reviews_lda, num_topics=5)
 
-# 差评：评分小于3，使用3个主题
+# 差评：评分小于3，使用4个主题
 negative_reviews_lda = df_reviews[df_reviews["score"] < 3]["clean_text"]
 negative_lda_result = perform_lda_analysis(negative_reviews_lda, num_topics=3)
 
@@ -245,8 +336,6 @@ with open("lda_analysis_results.json", "w", encoding="utf-8") as f:
     json.dump(lda_results, f, ensure_ascii=False, indent=4)
 
 print("\nLDA 分析结果已保存到 lda_analysis_results.json")
-
-
 
 #==================== 10. 生成评论关联强度网络图 =====================
 # 获取频率前30的词汇
