@@ -16,7 +16,7 @@ from snownlp import SnowNLP
 from gensim import corpora, models
 from PIL import Image, ImageDraw, ImageFont
 
-#==================== 配置参数 ====================
+#==================== 配置参数 =====================
 # 遮罩图片相关
 INITIAL_MASK_WIDTH = 1000        # 初始遮罩图片宽度（适当加大）
 INITIAL_MASK_HEIGHT = 500        # 初始遮罩图片高度（适当加大）
@@ -34,14 +34,14 @@ TEXT_STROKE_FILL = "black"       # 文字描边颜色
 plt.rcParams["font.sans-serif"] = ["SimHei"]  # 使用黑体显示中文
 plt.rcParams["axes.unicode_minus"] = False    # 正常显示负号
 
-#==================== 1. 读取 JSON 数据并构建 DataFrame ====================
+#==================== 1. 读取 JSON 数据并构建 DataFrame =====================
 json_filepath = "output.json"  # JSON 文件路径
 with open(json_filepath, "r", encoding="utf-8") as file:
     json_data = json.load(file)
 
 df_reviews = pd.DataFrame(json_data)
 
-#==================== 2. 数据去重、清洗与分词 ====================
+#==================== 2. 数据去重、清洗与分词 =====================
 df_reviews.drop_duplicates(subset="content", inplace=True)
 
 chinese_char_pattern = re.compile(r"[^\u4e00-\u9fa5]")
@@ -55,7 +55,7 @@ def cut_chinese_words(text):
 
 df_reviews["clean_text"] = df_reviews["clean_text"].apply(cut_chinese_words)
 
-#==================== 3. 读取停用词表并过滤停用词 ====================
+#==================== 3. 读取停用词表并过滤停用词 =====================
 stopwords_filepath = "stoplist.txt"  # 请确保 stoplist.txt 存在
 try:
     with open(stopwords_filepath, "r", encoding="utf-8") as file:
@@ -70,7 +70,7 @@ def filter_stopwords(text):
 
 df_reviews["clean_text"] = df_reviews["clean_text"].apply(filter_stopwords)
 
-#==================== 4. 统计词频并输出评论统计信息 ====================
+#==================== 4. 统计词频并输出评论统计信息 =====================
 all_words = []
 for word_line in df_reviews["clean_text"]:
     all_words.extend(word_line.split())
@@ -100,7 +100,7 @@ if meaningless_words:
 # 从词频中移除无意义词
 word_frequency = word_frequency.drop(labels=meaningless_words, errors="ignore")
 
-#==================== 5. 动态生成“滋补汤”遮罩图片 ====================
+#==================== 5. 动态生成“滋补汤”遮罩图片 =====================
 mask_width = INITIAL_MASK_WIDTH
 mask_height = INITIAL_MASK_HEIGHT
 
@@ -137,7 +137,7 @@ draw.text(
 
 mask_image_array = np.array(mask_image_pil)
 
-#==================== 6. 生成词云 ====================
+#==================== 6. 生成词云 =====================
 wordcloud = WordCloud(
     font_path=FONT_PATH,
     background_color="white",
@@ -159,7 +159,7 @@ print(f"词云图已保存为 {output_image_path}")
 
 plt.show()
 
-#==================== 7. SnowNLP 情感分析 ====================
+#==================== 7. SnowNLP 情感分析 =====================
 def calculate_sentiment(text):
     """计算文本情感得分，空文本返回中性 0.5"""
     if not text.strip():
@@ -169,7 +169,7 @@ def calculate_sentiment(text):
 
 df_reviews["sentiment_score"] = df_reviews["clean_text"].apply(calculate_sentiment)
 
-#==================== 8. 输出情感倾向分析图 ====================
+#==================== 8. 输出情感倾向分析图 =====================
 # 根据情感分数进行分类
 positive_reviews = df_reviews[df_reviews["sentiment_score"] > 0.5]
 negative_reviews = df_reviews[df_reviews["sentiment_score"] <= 0.5]
@@ -185,26 +185,70 @@ plt.axis('equal')  # 保持圆形
 plt.savefig("sentiment_analysis_pie_chart.png", dpi=300, bbox_inches='tight')  # 保存图像
 plt.show()
 print("情感倾向分析图已保存为 sentiment_analysis_pie_chart.png")
+#==================== 9. LDA 主题模型 =====================
+def perform_lda_analysis(reviews, num_topics=3):
+    texts_tokenized = [text.split() for text in reviews]
+    dictionary = corpora.Dictionary(texts_tokenized)
+    corpus = [dictionary.doc2bow(text) for text in texts_tokenized]
+    
+    lda_model = models.LdaModel(
+        corpus=corpus,
+        num_topics=num_topics,
+        id2word=dictionary,
+        random_state=42
+    )
+    
+    # 收集每个主题候选的前50个词及其权重
+    topic_candidates = {}
+    for topic_idx in range(num_topics):
+        topic_candidates[topic_idx] = lda_model.show_topic(topic_idx, topn=50)
+    
+    # 对每个词，找出在所有主题中权重最高的主题
+    best_assignment = {}
+    for topic_idx, candidates in topic_candidates.items():
+        for word, weight in candidates:
+            if word not in best_assignment or weight > best_assignment[word][1]:
+                best_assignment[word] = (topic_idx, weight)
+    
+    # 构造最终的主题列表：只保留分配给该主题的词
+    topics = []
+    for topic_idx in range(num_topics):
+        assigned_words = []
+        for word, weight in topic_candidates[topic_idx]:
+            # 仅保留当前主题中，且该词在所有主题中权重最高属于当前主题的词
+            if best_assignment.get(word, (None,))[0] == topic_idx:
+                assigned_words.append((word, weight))
+        # 按权重从高到低排序
+        assigned_words.sort(key=lambda x: x[1], reverse=True)
+        topic_string = " + ".join([f"{weight:.3f}*'{word}'" for word, weight in assigned_words])
+        topics.append((topic_idx, topic_string))
+    
+    topics_dict = {}
+    for topic_idx, topic in topics:
+        topics_dict[f"topic_{topic_idx}"] = topic
+    return topics_dict
 
-#==================== 9. LDA 主题模型示例 ====================
-texts_tokenized = [text.split() for text in df_reviews["clean_text"]]
-dictionary = corpora.Dictionary(texts_tokenized)
-corpus = [dictionary.doc2bow(text) for text in texts_tokenized]
+# 好评：评分为5，使用5个主题
+positive_reviews_lda = df_reviews[df_reviews["score"] == 5]["clean_text"]
+positive_lda_result = perform_lda_analysis(positive_reviews_lda, num_topics=5)
 
-num_topics = 3
-lda_model = models.LdaModel(
-    corpus=corpus,
-    num_topics=num_topics,
-    id2word=dictionary,
-    random_state=42
-)
+# 差评：评分小于3，使用3个主题
+negative_reviews_lda = df_reviews[df_reviews["score"] < 3]["clean_text"]
+negative_lda_result = perform_lda_analysis(negative_reviews_lda, num_topics=3)
 
-print("\nLDA 主题输出:")
-topics = lda_model.print_topics(num_words=10)
-for topic_idx, topic in topics:
-    print(f"主题 {topic_idx}：{topic}")
+lda_results = {
+    "positive_reviews_lda": positive_lda_result,
+    "negative_reviews_lda": negative_lda_result
+}
 
-#==================== 10. 生成评论关联强度网络图 ====================
+with open("lda_analysis_results.json", "w", encoding="utf-8") as f:
+    json.dump(lda_results, f, ensure_ascii=False, indent=4)
+
+print("\nLDA 分析结果已保存到 lda_analysis_results.json")
+
+
+
+#==================== 10. 生成评论关联强度网络图 =====================
 # 获取频率前30的词汇
 top_30_words = word_frequency.head(30)
 
@@ -242,7 +286,7 @@ plt.savefig("comment_word_association_network.png", dpi=300, bbox_inches='tight'
 plt.show()
 print("评论词语关联网络图已保存为 comment_word_association_network.png")
 
-#==================== 11. 生成评论文本评述表 ====================
+#==================== 11. 生成评论文本评述表 =====================
 # 将词频和词语转换为DataFrame并输出为 Excel 文件
 word_frequency_df = top_30_words.reset_index()
 word_frequency_df.columns = ['词语', '频率']
