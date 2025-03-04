@@ -90,7 +90,7 @@ def tune_model(pipeline: Pipeline, X_train: pd.DataFrame, y_train: pd.Series) ->
     param_grid = {
         'classifier__hidden_layer_sizes': [(50, 25), (100, 50), (50, 50, 25)],
         'classifier__alpha': [0.0001, 0.001, 0.01],
-        'classifier__max_iter': [300, 500, 700]
+        'classifier__max_iter': [500]
     }
     grid_search = GridSearchCV(pipeline, param_grid, cv=5, scoring='accuracy', n_jobs=-1)
     grid_search.fit(X_train, y_train)
