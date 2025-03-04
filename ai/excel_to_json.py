@@ -109,26 +109,85 @@ def evaluate_model(model: GridSearchCV, X_test: pd.DataFrame, y_test: pd.Series)
     print("测试集准确率：", acc)
     print("分类报告：\n", report)
 
+def get_feature_names(ct: ColumnTransformer):
+    """
+    从 ColumnTransformer 中提取特征名称。对于 Pipeline 类型的转换器，
+    如果最后一步实现了 get_feature_names_out，则调用该方法；否则直接返回原始列名。
+    """
+    feature_names = []
+    for name, trans, cols in ct.transformers_:
+        if trans == 'drop' or trans is None:
+            continue
+        if isinstance(trans, Pipeline):
+            # 对于 Pipeline，我们尝试从最后一步提取特征名称
+            last_step = trans.steps[-1][1]
+            if hasattr(last_step, "get_feature_names_out"):
+                names = last_step.get_feature_names_out(cols)
+            else:
+                names = cols
+        elif hasattr(trans, "get_feature_names_out"):
+            names = trans.get_feature_names_out(cols)
+        else:
+            names = cols
+        feature_names.extend(names)
+    return np.array(feature_names)
+
+
 def shap_explain(model: GridSearchCV, X_test: pd.DataFrame, num_samples: int = 10) -> None:
     """
     利用 SHAP 值对模型进行解释：
       - 采用 KernelExplainer 解释 predict_proba
       - 使用部分测试样本进行解释
+      - 绘制 SHAP summary plot（包含正负贡献）
+      - 另外计算每个特征的平均原始 SHAP 值（可能为负）和平均绝对 SHAP 值，
+        并利用 Plotly 绘制条形图显示原始 SHAP 值（负值将反映为负贡献）
     """
     # 从最佳模型中获取已拟合的预处理器和分类器
     fitted_preprocessor = model.best_estimator_.named_steps['preprocessor']
     best_classifier = model.best_estimator_.named_steps['classifier']
     
-    # 使用拟合后的预处理器转换数据
+    # 使用预处理器转换测试数据
     X_test_transformed = fitted_preprocessor.transform(X_test)
     background = X_test_transformed[:100] if X_test_transformed.shape[0] >= 100 else X_test_transformed
+
     explainer = shap.KernelExplainer(best_classifier.predict_proba, background)
     shap_values = explainer.shap_values(X_test_transformed[:num_samples])
     
-    # 获取经过预处理后特征的名称
-    feature_names = fitted_preprocessor.get_feature_names_out()
+    # 针对二分类问题，选择其中一个类的解释
+    if isinstance(shap_values, list) and len(shap_values) > 1:
+        shap_vals = shap_values[1]
+    else:
+        shap_vals = shap_values
+
+    # 计算每个特征的平均原始 SHAP 值（可能为负）和平均绝对 SHAP 值
+    mean_raw_shap = np.mean(shap_vals, axis=0).flatten()
+    mean_abs_shap = np.mean(np.abs(shap_vals), axis=0).flatten()
+    
+    # 获取转换后特征的名称，使用自定义函数处理不支持 get_feature_names_out 的情况
+    feature_names = get_feature_names(fitted_preprocessor)
+    
+    # 使用 SHAP 自带的交互式 summary plot（会展示正负贡献情况）
     shap.initjs()
     shap.summary_plot(shap_values, X_test_transformed[:num_samples], feature_names=feature_names)
+    
+    # 构造 DataFrame 用于 Plotly 绘图，同时显示原始 SHAP 值（包含负值）
+    df_shap = pd.DataFrame({
+        "Feature": feature_names,
+        "Mean Raw SHAP": mean_raw_shap,
+        "Mean Abs SHAP": mean_abs_shap
+    })
+    # 按平均绝对值排序
+    df_shap.sort_values(by="Mean Abs SHAP", ascending=False, inplace=True)
+    
+    import plotly.express as px
+    fig = px.bar(df_shap, x="Mean Raw SHAP", y="Feature", orientation='h',
+                 title="Mean Raw SHAP Values (含正负贡献)",
+                 labels={"Mean Raw SHAP": "平均原始 SHAP 值", "Feature": "特征"})
+    fig.update_layout(yaxis={'categoryorder': 'total ascending'})
+    fig.write_html("shap_raw_summary_plot.html")
+    logging.info("已将原始 SHAP 值条形图导出为 shap_raw_summary_plot.html")
+
+
 
 
 
